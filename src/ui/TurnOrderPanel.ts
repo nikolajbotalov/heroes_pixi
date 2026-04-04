@@ -1,18 +1,10 @@
 import * as PIXI from "pixi.js";
 import { CreatureStack } from "../entities/CreatureStack";
 
-/**
- * Тип слота в панели очереди
- */
 type Slot =
   | { type: "stack"; stack: CreatureStack }
   | { type: "round"; roundNumber: number };
 
-/**
- * UI панель отображения очереди ходов
- * Фиксированная панель из 12 слотов. После каждого хода слоты сдвигаются влево,
- * а ходящее существо перемещается в конец (слот 11).
- */
 export class TurnOrderPanel extends PIXI.Container {
   private bg: PIXI.Graphics;
   private icons: {
@@ -21,14 +13,12 @@ export class TurnOrderPanel extends PIXI.Container {
     label: PIXI.Text;
   }[] = [];
 
-  // Фиксированный массив из 12 слотов
   private slots: Slot[] = [];
   private readonly MAX_SLOTS = 12;
-  // Текущий номер раунда для меток (R2, R3, R4...)
   private nextRoundMarker: number = 2;
 
   private panelWidth: number = 0;
-  public panelHeight: number = 66; // 44 * 1.5
+  public panelHeight: number = 66;
 
   constructor() {
     super();
@@ -37,177 +27,193 @@ export class TurnOrderPanel extends PIXI.Container {
   }
 
   /**
-   * Инициализировать панель с начальной очередью
-   * Создаёт 12 слотов: существа + метки раундов (начиная с R2)
+   * Инициализация: [Л, К1, К2, К3, R2, Л, К1, К2, К3, R3, Л, К1]
    */
   init(queue: CreatureStack[]): void {
     this.slots = [];
     this.nextRoundMarker = 2;
 
-    // Только живые существа
     const aliveStacks = queue.filter(
       (s) => s.getCreature().count > 0 && s.visible,
     );
-
-    if (aliveStacks.length === 0) {
-      return;
+    const seen = new Set<CreatureStack>();
+    const roundOrder: CreatureStack[] = [];
+    for (const stack of aliveStacks) {
+      if (!seen.has(stack)) {
+        seen.add(stack);
+        roundOrder.push(stack);
+      }
     }
 
-    // Заполняем 12 слотов: существа + метки раундов
-    // Первая метка раунда = R2 (R1 — текущий раунд, не отображаем)
-    let slotIndex = 0;
+    if (roundOrder.length === 0) return;
 
+    let slotIndex = 0;
+    let roundNum = 1;
     while (slotIndex < this.MAX_SLOTS) {
-      for (const stack of aliveStacks) {
+      for (const stack of roundOrder) {
         if (slotIndex >= this.MAX_SLOTS) break;
         this.slots.push({ type: "stack", stack });
         slotIndex++;
       }
-      // Метка следующего раунда
       if (slotIndex < this.MAX_SLOTS) {
-        this.slots.push({ type: "round", roundNumber: this.nextRoundMarker });
-        this.nextRoundMarker++;
+        roundNum++;
+        this.slots.push({ type: "round", roundNumber: roundNum });
         slotIndex++;
       }
     }
-
-    // Обрезаем до MAX_SLOTS
-    this.slots = this.slots.slice(0, this.MAX_SLOTS);
+    this.nextRoundMarker = roundNum + 1;
   }
 
   /**
-   * Удалить существо из очереди (при гибели)
-   * Переинициализирует очередь без мёртвых существ
+   * Переинициализировать (при новом раунде)
+   */
+  reinit(queue: CreatureStack[], roundNumber: number): void {
+    this.slots = [];
+    this.nextRoundMarker = roundNumber + 1;
+
+    const aliveStacks = queue.filter(
+      (s) => s.getCreature().count > 0 && s.visible,
+    );
+    const seen = new Set<CreatureStack>();
+    const roundOrder: CreatureStack[] = [];
+    for (const stack of aliveStacks) {
+      if (!seen.has(stack)) {
+        seen.add(stack);
+        roundOrder.push(stack);
+      }
+    }
+
+    if (roundOrder.length === 0) return;
+
+    let slotIndex = 0;
+    let roundNum = roundNumber;
+    while (slotIndex < this.MAX_SLOTS) {
+      for (const stack of roundOrder) {
+        if (slotIndex >= this.MAX_SLOTS) break;
+        this.slots.push({ type: "stack", stack });
+        slotIndex++;
+      }
+      if (slotIndex < this.MAX_SLOTS) {
+        roundNum++;
+        this.slots.push({ type: "round", roundNumber: roundNum });
+        slotIndex++;
+      }
+    }
+    this.nextRoundMarker = roundNum + 1;
+  }
+
+  /**
+   * Сбросить Wait (новый раунд) — ничего не делает, reinit сам строит
+   */
+  resetWaiting(): void {
+    // При новом раунде handleTurnEnded вызовет reinit, так что тут пусто
+  }
+
+  /**
+   * Удалить все копии существа (при гибели)
    */
   removeStack(deadStack: CreatureStack): void {
-    // Удаляем из слотов
     this.slots = this.slots.filter(
       (s) => !(s.type === "stack" && s.stack === deadStack),
     );
-
-    // Переинициализируем метки раундов
-    this.rebuildRoundMarkers();
   }
 
   /**
-   * Перестроить метки раундов после удаления существ
-   */
-  private rebuildRoundMarkers(): void {
-    // Собираем все уникальные существа в порядке
-    const orderedStacks: CreatureStack[] = [];
-    for (const slot of this.slots) {
-      if (slot.type === "stack") {
-        orderedStacks.push(slot.stack);
-      }
-    }
-
-    const uniqueStacks = [...new Set(orderedStacks)];
-    if (uniqueStacks.length === 0) {
-      this.slots = [];
-      return;
-    }
-
-    // Пересобираем: существа + метки раундов
-    this.slots = [];
-    let slotIndex = 0;
-    let nextRound = 2;
-
-    for (let cycle = 0; cycle < 20 && slotIndex < this.MAX_SLOTS; cycle++) {
-      let addedThisCycle = 0;
-      for (const stack of uniqueStacks) {
-        if (slotIndex >= this.MAX_SLOTS) break;
-        this.slots.push({ type: "stack", stack });
-        slotIndex++;
-        addedThisCycle++;
-      }
-      // Метка раунда после каждого цикла
-      if (slotIndex < this.MAX_SLOTS && addedThisCycle > 0) {
-        this.slots.push({ type: "round", roundNumber: nextRound });
-        nextRound++;
-        slotIndex++;
-      }
-    }
-
-    this.slots = this.slots.slice(0, this.MAX_SLOTS);
-  }
-
-  /**
-   * Сдвинуть очередь после хода
-   * - Удаляем первый слот
-   * - Если удалён стек — добавляем ходящий стек в конец
-   * - Если удалена метка раунда — добавляем новую метку в конец (nextRoundMarker++)
-   * @param actingStack - существо, которое только что совершило ход
+   * Обычный ход: shift + push(actingStack) — стек уходит в конец всего массива
    */
   advanceTurn(actingStack: CreatureStack): void {
     const removed = this.slots.shift();
+    if (!removed) return;
 
-    if (removed?.type === "round") {
-      // Метка раунда ушла — добавляем следующую
+    if (removed.type === "round") {
       this.slots.push({ type: "round", roundNumber: this.nextRoundMarker });
       this.nextRoundMarker++;
-    } else {
-      // Стек ушёл — добавляем ходящий стек в конец (если живое)
-      if (actingStack.getCreature().count > 0) {
-        this.slots.push({ type: "stack", stack: actingStack });
-      }
+    }
+
+    if (actingStack.getCreature().count > 0) {
+      this.slots.push({ type: "stack", stack: actingStack });
     }
   }
 
   /**
-   * Обновить отображение очереди
-   * @param queue - полная очередь существ
-   * @param currentStack - текущий ход (для подсветки)
+   * Wait: shift + вставить стек ПЕРЕД первой меткой раунда (в конец текущего раунда)
    */
+  advanceTurnWithWait(waitingStack: CreatureStack): void {
+    const removed = this.slots.shift();
+    if (!removed) return;
+
+    if (removed.type === "round") {
+      // Удалена метка — ставим новую
+      this.slots.push({ type: "round", roundNumber: this.nextRoundMarker });
+      this.nextRoundMarker++;
+    }
+
+    // Вставляем waitingStack перед первой меткой раунда (конец текущего раунда)
+    if (waitingStack.getCreature().count > 0) {
+      const roundIndex = this.slots.findIndex((s) => s.type === "round");
+      if (roundIndex === -1) {
+        // Нет метки — просто в конец
+        this.slots.push({ type: "stack", stack: waitingStack });
+      } else {
+        this.slots.splice(roundIndex, 0, {
+          type: "stack",
+          stack: waitingStack,
+        });
+      }
+    }
+  }
+
+  getSlotNames(): string[] {
+    return this.slots.map((s) =>
+      s.type === "stack"
+        ? s.stack.getCreature().config.name
+        : `R${s.roundNumber}`,
+    );
+  }
+
   update(queue: CreatureStack[], currentStack: CreatureStack | null): void {
-    // Если панель ещё не инициализирована — инициализируем
     if (this.slots.length === 0) {
       this.init(queue);
     }
-
     this.removeIcons();
     this.renderQueue(currentStack);
   }
 
-  /**
-   * Отрисовать очередь
-   */
   private renderQueue(currentStack: CreatureStack | null): void {
-    const iconSize = 36; // 24 * 1.5
-    const gap = 12; // 8 * 1.5
-    const startX = 15; // 10 * 1.5
-    const startY = 15; // 10 * 1.5
+    const iconSize = 36;
+    const gap = 12;
+    const startX = 15;
+    const startY = 15;
 
     if (this.slots.length === 0) {
-      this.panelWidth = 300; // 200 * 1.5
+      this.panelWidth = 300;
       this.drawBackground();
       return;
     }
 
-    // Рисуем все непустые слоты (максимум MAX_SLOTS)
     const visibleCount = Math.min(this.slots.length, this.MAX_SLOTS);
-
     for (let i = 0; i < visibleCount; i++) {
       const slot = this.slots[i];
-
       const x = startX + i * (iconSize + gap);
       const y = startY;
 
       if (slot.type === "stack") {
-        const isCurrent = slot.stack === currentStack;
-        this.renderStackIcon(x, y, iconSize, slot.stack, isCurrent);
+        this.renderStackIcon(
+          x,
+          y,
+          iconSize,
+          slot.stack,
+          slot.stack === currentStack,
+        );
       } else if (slot.type === "round") {
         this.renderRoundMarker(x, y, iconSize, slot.roundNumber);
       }
     }
 
-    // Ширина панели — фиксированная на 12 слотов
-    this.panelWidth = this.MAX_SLOTS * (iconSize + gap) + 15; // 10 * 1.5
+    this.panelWidth = this.MAX_SLOTS * (iconSize + gap) + 15;
     this.drawBackground();
   }
 
-  /**
-   * Отрисовать иконку существа
-   */
   private renderStackIcon(
     x: number,
     y: number,
@@ -226,14 +232,14 @@ export class TurnOrderPanel extends PIXI.Container {
       alpha: isCurrent ? 1.0 : 0.5,
     });
     graphic.circle(cx, cy, radius).stroke({
-      width: isCurrent ? 4.5 : 1.5, // 3 * 1.5 : 1 * 1.5
+      width: isCurrent ? 4.5 : 1.5,
       color: isCurrent ? 0xffffff : 0x888888,
     });
 
     const label = new PIXI.Text({
       text: String(creature.count),
       style: {
-        fontSize: 15, // 10 * 1.5
+        fontSize: 15,
         fill: 0xffffff,
         fontFamily: "Arial",
         fontWeight: "bold",
@@ -245,13 +251,9 @@ export class TurnOrderPanel extends PIXI.Container {
 
     this.addChild(graphic);
     this.addChild(label);
-
     this.icons.push({ slot: { type: "stack", stack }, graphic, label });
   }
 
-  /**
-   * Отрисовать метку раунда
-   */
   private renderRoundMarker(
     x: number,
     y: number,
@@ -263,19 +265,13 @@ export class TurnOrderPanel extends PIXI.Container {
     const cy = y + radius;
 
     const graphic = new PIXI.Graphics();
-    graphic.circle(cx, cy, radius).fill({
-      color: 0x333355,
-      alpha: 0.8,
-    });
-    graphic.circle(cx, cy, radius).stroke({
-      width: 1.5, // 1 * 1.5
-      color: 0x555577,
-    });
+    graphic.circle(cx, cy, radius).fill({ color: 0x333355, alpha: 0.8 });
+    graphic.circle(cx, cy, radius).stroke({ width: 1.5, color: 0x555577 });
 
     const label = new PIXI.Text({
       text: `R${roundNumber}`,
       style: {
-        fontSize: 13.5, // 9 * 1.5
+        fontSize: 13.5,
         fill: 0xaabbcc,
         fontFamily: "Arial",
         fontWeight: "bold",
@@ -287,36 +283,23 @@ export class TurnOrderPanel extends PIXI.Container {
 
     this.addChild(graphic);
     this.addChild(label);
-
-    this.icons.push({
-      slot: { type: "round", roundNumber },
-      graphic,
-      label,
-    });
+    this.icons.push({ slot: { type: "round", roundNumber }, graphic, label });
   }
 
-  /**
-   * Отрисовать фон панели
-   */
   private drawBackground(): void {
     this.bg.clear();
     this.bg.roundRect(0, 0, this.panelWidth, this.panelHeight, 12).fill({
-      // 8 * 1.5
       color: 0x0a0a1a,
       alpha: 0.6,
     });
     this.bg.roundRect(0, 0, this.panelWidth, this.panelHeight, 12).stroke({
-      // 8 * 1.5
-      width: 1.5, // 1 * 1.5
+      width: 1.5,
       color: 0x333355,
       alpha: 0.5,
     });
     this.setChildIndex(this.bg, 0);
   }
 
-  /**
-   * Очистить иконки
-   */
   private removeIcons(): void {
     this.icons.forEach(({ graphic, label }) => {
       this.removeChild(graphic);

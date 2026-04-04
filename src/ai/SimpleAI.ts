@@ -10,16 +10,22 @@ import { hexDistance, hexNeighbors } from "../types/hex";
  * SimpleAI — базовый AI для компьютерного игрока
  *
  * Логика принятия решений:
- * 1. Если есть враги в радиусе атаки после перемещения — атаковать ближайшего/слабейшего
- * 2. Если враги далеко — переместиться к ближайшему врагу
- * 3. Если нет хороших ходов — защищаться
- * 4. Если выгодно — ожидать (переместиться в конец очереди)
+ * 1. Если есть враги в радиусе атаки — атаковать ближайшего/слабейшего
+ *    - Для ranged: радиус стрельбы ~10 гексов
+ *    - Для melee: соседний гекс
+ * 2. Если враги в досягаемости хода + атаки — переместиться и атаковать
+ *    - Для ranged: не нужно перемещаться, если враг в радиусе
+ *    - Для melee: подойти и ударить
+ * 3. Движение к ближайшему врагу
+ * 4. Защита
  */
 export class SimpleAI {
   private battleManager: BattleManager;
   private actionManager: ActionManager;
   private gridWidth: number;
   private gridHeight: number;
+  private meleeRange: number = 1;
+  private rangedRange: number = 10;
 
   constructor(
     battleManager: BattleManager,
@@ -38,6 +44,9 @@ export class SimpleAI {
    */
   executeTurn(stack: CreatureStack, onComplete?: () => void): void {
     const creature = stack.getCreature();
+    const attackType = creature.config.attackType;
+    const maxRange =
+      attackType === "melee" ? this.meleeRange : this.rangedRange;
 
     // Получаем все стеки
     const allStacks = this.battleManager.getAllStacks();
@@ -51,15 +60,16 @@ export class SimpleAI {
       return;
     }
 
-    // --- 1. Атака без перемещения (враг уже рядом) ---
-    const adjacentEnemy = this.findAdjacentEnemy(stack, enemyStacks);
-    if (adjacentEnemy) {
-      this.attackTarget(stack, adjacentEnemy, onComplete);
+    // --- 1. Атака без перемещения (враг в радиусе атаки) ---
+    const inRangeEnemy = this.findEnemyInRange(stack, enemyStacks, maxRange);
+    if (inRangeEnemy) {
+      this.attackTarget(stack, inRangeEnemy, onComplete);
       return;
     }
 
-    // --- 2. Перемещение + атака (можно дойти и ударить за один ход) ---
-    if (this.actionManager.canMove(stack)) {
+    // --- 2. Для melee: перемещение + атака ---
+    // Для ranged: этот шаг пропускаем (лучник стреляет без перемещения)
+    if (attackType === "melee" && this.actionManager.canMove(stack)) {
       const moveAndAttackResult = this.findMoveAndAttackTarget(
         stack,
         enemyStacks,
@@ -83,7 +93,7 @@ export class SimpleAI {
       return;
     }
 
-    // --- 4. Движение к ближайшему врагу (всегда, если не можем атаковать) ---
+    // --- 4. Движение к ближайшему врагу ---
     const nearestEnemy = this.findNearestEnemy(stack, enemyStacks);
     if (nearestEnemy) {
       this.moveToEnemy(stack, nearestEnemy, onComplete);
@@ -95,22 +105,39 @@ export class SimpleAI {
   }
 
   /**
-   * Найти врага на соседнем гексе (для ближнего боя)
+   * Найти врага в радиусе атаки
    */
-  private findAdjacentEnemy(
+  private findEnemyInRange(
     stack: CreatureStack,
     enemyStacks: CreatureStack[],
+    maxRange: number,
   ): CreatureStack | null {
     const currentHex = stack.getHex();
 
+    // Для ranged — приоритет слабому врагу
+    let bestEnemy: CreatureStack | null = null;
+    let bestScore = -Infinity;
+
     for (const enemy of enemyStacks) {
       const enemyHex = enemy.getHex();
-      if (hexDistance(currentHex, enemyHex) <= 1) {
-        return enemy;
+      const distance = hexDistance(currentHex, enemyHex);
+
+      if (distance <= maxRange) {
+        const enemyCreature = enemy.getCreature();
+        const hpRatio =
+          enemyCreature.currentHp /
+          (enemyCreature.config.health * enemyCreature.count);
+        // Приоритет: слабый враг
+        const score = (1 - hpRatio) * 5;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestEnemy = enemy;
+        }
       }
     }
 
-    return null;
+    return bestEnemy;
   }
 
   /**
@@ -242,8 +269,8 @@ export class SimpleAI {
 
   /**
    * Переместиться к врагу (без атаки)
-   * Если может дойти до позиции атаки — идёт туда.
-   * Иначе — двигается в сторону врага на максимальное расстояние.
+   * Для melee: ищет позицию атаки (соседний гекс) или двигается в сторону.
+   * Для ranged: двигается в сторону врага, стараясь оставаться в радиусе стрельбы.
    */
   private moveToEnemy(
     stack: CreatureStack,
@@ -251,23 +278,36 @@ export class SimpleAI {
     onComplete?: () => void,
   ): void {
     const creature = stack.getCreature();
+    const attackType = creature.config.attackType;
     const currentHex = stack.getHex();
     const enemyHex = enemy.getHex();
     const occupiedHexes = this.battleManager.getOccupiedHexes(stack);
     const speed = creature.config.speed;
 
-    // Ищем лучший гекс: позиция атаки или просто ближе к врагу
-    let targetHex = findNearestAttackHex(
-      currentHex,
-      enemyHex,
-      speed,
-      occupiedHexes,
-      this.gridWidth,
-      this.gridHeight,
-    );
+    let targetHex: Hex | null = null;
 
-    if (!targetHex) {
-      // Не можем дойти до позиции атаки — двигаемся в сторону врага
+    if (attackType === "melee") {
+      // Для melee — ищем позицию атаки (соседний гекс)
+      targetHex = findNearestAttackHex(
+        currentHex,
+        enemyHex,
+        speed,
+        occupiedHexes,
+        this.gridWidth,
+        this.gridHeight,
+      );
+
+      if (!targetHex) {
+        // Не можем дойти до позиции атаки — двигаемся в сторону врага
+        targetHex = this.findBestApproachHex(
+          currentHex,
+          enemyHex,
+          speed,
+          occupiedHexes,
+        );
+      }
+    } else {
+      // Для ranged — просто двигаемся к врагу (чтобы быть в радиусе стрельбы)
       targetHex = this.findBestApproachHex(
         currentHex,
         enemyHex,

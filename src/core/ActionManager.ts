@@ -13,6 +13,7 @@ export interface StackActionState {
   hasMoved: boolean;
   hasActed: boolean;
   isDefending: boolean;
+  isWaiting: boolean;
 }
 
 /**
@@ -40,6 +41,7 @@ export class ActionManager {
       hasMoved: false,
       hasActed: false,
       isDefending: false,
+      isWaiting: false,
     });
   }
 
@@ -51,6 +53,7 @@ export class ActionManager {
       state.hasMoved = false;
       state.hasActed = false;
       state.isDefending = false;
+      state.isWaiting = false;
     }
   }
 
@@ -108,7 +111,7 @@ export class ActionManager {
   }
 
   /**
-   * Выполнить ожидание — переместить стек в конец очереди
+   * Выполнить ожидание — переместить стек в конец очереди (конец текущего раунда)
    */
   wait(stack: CreatureStack): boolean {
     if (!this.initiativeQueue) return false;
@@ -116,11 +119,19 @@ export class ActionManager {
     const state = this.actionStates.get(stack);
     if (!state || state.hasActed) return false;
 
-    // Перемещаем стек в конец очереди
     this.initiativeQueue.moveToEnd(stack);
     state.hasActed = true;
+    state.isWaiting = true;
 
     return true;
+  }
+
+  /**
+   * Проверить, выполнил ли стек Wait
+   */
+  isWaiting(stack: CreatureStack): boolean {
+    const state = this.actionStates.get(stack);
+    return state?.isWaiting ?? false;
   }
 
   /**

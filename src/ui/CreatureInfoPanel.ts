@@ -6,6 +6,7 @@ import { Creature } from "../types/creature";
  */
 const CREATURE_NAMES_RU: Record<string, string> = {
   Peasant: "Крестьянин",
+  Archer: "Лучник",
 };
 
 /**

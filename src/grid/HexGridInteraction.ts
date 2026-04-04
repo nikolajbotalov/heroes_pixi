@@ -125,7 +125,14 @@ export class HexGridInteraction extends PIXI.Container {
     // Проверяем, это цель для move+attack (в зоне досягаемости хода)
     const targetKey = `${targetHex.q},${targetHex.r}`;
     if (this.moveAttackTargets.has(targetKey)) {
-      // Выполняем перемещение + атаку
+      // Для ranged — атакуем без перемещения
+      if (attackType === "ranged") {
+        this.performAttack(attacker, target);
+        this.attackHighlight.clear();
+        this.hexHighlight.clear();
+        return;
+      }
+      // Для melee — перемещаемся + атакуем
       this.performMoveAndAttack(attacker, target);
       this.attackHighlight.clear();
       this.hexHighlight.clear();
@@ -262,7 +269,7 @@ export class HexGridInteraction extends PIXI.Container {
   }
 
   /**
-   * Анимация атаки (рывок к цели для ближнего боя)
+   * Анимация атаки (рывок к цели для ближнего боя, выстрел для дальнего)
    */
   private animateAttack(
     attacker: CreatureStack,
@@ -315,8 +322,11 @@ export class HexGridInteraction extends PIXI.Container {
       };
 
       requestAnimationFrame(animate);
+    } else if (attackType === "ranged") {
+      // Для дальнего боя — короткая задержка (стрела летит)
+      setTimeout(onComplete, 400);
     } else {
-      // Для дальнего боя или соседней цели — просто задержка
+      // Для ближнего боя на соседнем гексе — просто задержка
       setTimeout(onComplete, 300);
     }
   }
@@ -374,7 +384,8 @@ export class HexGridInteraction extends PIXI.Container {
 
   /**
    * Показать цели для атаки за один ход (move+attack)
-   * Враги, до которых можно дойти и атаковать
+   * Для ближнего боя: враги, до которых можно дойти и атаковать.
+   * Для дальнего боя: все враги в радиусе стрельбы (без перемещения).
    */
   showMoveAttackTargets(stack: CreatureStack): void {
     const enemyStacks = this.battleManager
@@ -385,9 +396,31 @@ export class HexGridInteraction extends PIXI.Container {
 
     const attackerHex = stack.getHex();
     const speed = stack.getCreature().config.speed;
+    const attackType = stack.getCreature().config.attackType;
+    const maxRange =
+      attackType === "melee" ? this.meleeRange : this.rangedRange;
+
+    // Для дальнего боя — все враги в радиусе стрельбы
+    if (attackType === "ranged") {
+      const inRange = enemyStacks.filter((enemy) => {
+        const enemyHex = enemy.getHex();
+        return hexDistance(attackerHex, enemyHex) <= maxRange;
+      });
+
+      this.moveAttackTargets.clear();
+      if (inRange.length > 0) {
+        for (const enemy of inRange) {
+          const key = `${enemy.getHex().q},${enemy.getHex().r}`;
+          this.moveAttackTargets.add(key);
+        }
+        this.attackHighlight.show(inRange, "orange");
+      }
+      return;
+    }
+
+    // Для ближнего боя: находим врагов, до которых можно дойти и атаковать
     const occupiedHexes = this.battleManager.getOccupiedHexes(stack);
 
-    // Находим врагов, до которых можно дойти и атаковать за один ход
     this.moveAttackTargets.clear();
     const moveAttackStacks: CreatureStack[] = [];
 
