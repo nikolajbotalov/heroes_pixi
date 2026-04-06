@@ -1,6 +1,6 @@
 import * as PIXI from "pixi.js";
 import { Creature } from "../types/creature";
-import { Hex, hexToPixel, HEX_SIZE } from "../types/hex";
+import { Hex, hexToPixel, HEX_SIZE, hexAdd } from "../types/hex";
 import { HealthBar } from "../ui/HealthBar";
 import { findHexStepPath } from "../grid/HexUtils";
 
@@ -15,6 +15,51 @@ export class CreatureStack extends PIXI.Container {
   private countText: PIXI.Text;
   private healthBar: HealthBar;
   private isSelected: boolean = false;
+
+  /**
+   * Получить размер существа в гексах
+   */
+  getSizeInHexes(): number {
+    return this.creature.config.sizeInHexes ?? 1;
+  }
+
+  /**
+   * Получить все гексы, занимаемые существом
+   * Для существ размером 1 гекс — возвращает [hex]
+   * Для существ размером 2 гекса — возвращает [hex, hex+смещение]
+   */
+  getOccupiedHexes(): Hex[] {
+    const size = this.getSizeInHexes();
+    if (size === 1) {
+      return [this.hex];
+    }
+
+    // Для существа на 2 гекса: основной гекс + соседний справа
+    // Смещение выбрано так, чтобы существо выглядело центрированным
+    return [this.hex, hexAdd(this.hex, { q: 1, r: 0 })];
+  }
+
+  /**
+   * Проверить, занимает ли стек указанный гекс
+   */
+  occupiesHex(hex: Hex): boolean {
+    const occupiedHexes = this.getOccupiedHexes();
+    return occupiedHexes.some((h) => h.q === hex.q && h.r === hex.r);
+  }
+
+  /**
+   * Получить гексы, которые занимал бы стек, если бы находился на указанной позиции
+   * Используется для проверки валидности перемещения без фактического перемещения
+   */
+  getOccupiedHexesAt(targetHex: Hex): Hex[] {
+    const size = this.getSizeInHexes();
+    if (size === 1) {
+      return [targetHex];
+    }
+
+    // Для существа на 2 гекса: основной гекс + соседний справа
+    return [targetHex, hexAdd(targetHex, { q: 1, r: 0 })];
+  }
 
   constructor(creature: Creature, hex: Hex, hexSize: number = HEX_SIZE) {
     super();
@@ -51,6 +96,22 @@ export class CreatureStack extends PIXI.Container {
       event.stopPropagation();
     });
 
+    // Для существ на 2 гекса — увеличиваем hit area
+    const size = this.getSizeInHexes();
+    if (size >= 2) {
+      // Hit area должен покрывать оба гекса
+      const secondHex = hexAdd(this.hex, { q: 1, r: 0 });
+      const secondPixel = hexToPixel(secondHex, this.hexSize);
+      const dx = secondPixel.x;
+
+      this.hitArea = new PIXI.Rectangle(
+        -this.hexSize * 1.2,
+        -this.hexSize * 0.9,
+        Math.abs(dx) + this.hexSize * 2.4,
+        this.hexSize * 1.8,
+      );
+    }
+
     this.render();
   }
 
@@ -59,38 +120,102 @@ export class CreatureStack extends PIXI.Container {
    */
   public render(): void {
     const { x, y } = hexToPixel(this.hex, this.hexSize);
+    const size = this.getSizeInHexes();
 
     this.position.set(x, y);
 
-    // Рисуем круг, представляющий стек
-    const radius = this.hexSize * 0.6;
     this.graphic.clear();
-    this.graphic.circle(0, 0, radius).fill({
-      color: this.creature.config.color,
-      alpha: 0.9,
-    });
 
-    // Если выделен - добавляем яркую обводку
-    if (this.isSelected) {
-      this.graphic.circle(0, 0, radius).stroke({
-        width: 4,
-        color: 0xffd700, // Золотой цвет для выделения
-        alpha: 1.0,
-      });
+    if (size >= 2) {
+      // Для существ на 2 гекса — рисуем прямоугольник, охватывающий оба гекса
+      const secondHex = hexAdd(this.hex, { q: 1, r: 0 });
+      const secondPixel = hexToPixel(secondHex, this.hexSize);
+
+      // Расстояние между центрами гексов
+      const dx = secondPixel.x - x;
+      const dy = secondPixel.y - y;
+
+      // Смещение прямоугольника: центр должен быть посередине между двумя гексами
+      const offsetX = dx / 2;
+      const offsetY = dy / 2;
+
+      // Половина ширины: половина расстояния между гексами + отступ
+      const halfWidth = Math.abs(dx) / 2 + this.hexSize * 0.55;
+      const halfHeight = this.hexSize * 0.85;
+
+      this.graphic
+        .rect(
+          -halfWidth + offsetX,
+          -halfHeight + offsetY,
+          halfWidth * 2,
+          halfHeight * 2,
+        )
+        .fill({
+          color: this.creature.config.color,
+          alpha: 0.9,
+        });
+
+      if (this.isSelected) {
+        this.graphic
+          .rect(
+            -halfWidth + offsetX,
+            -halfHeight + offsetY,
+            halfWidth * 2,
+            halfHeight * 2,
+          )
+          .stroke({
+            width: 4,
+            color: 0xffd700,
+            alpha: 1.0,
+          });
+      } else {
+        this.graphic
+          .rect(
+            -halfWidth + offsetX,
+            -halfHeight + offsetY,
+            halfWidth * 2,
+            halfHeight * 2,
+          )
+          .stroke({
+            width: 2,
+            color: 0xffffff,
+            alpha: 0.5,
+          });
+      }
+
+      // Текст под прямоугольником, по центру фигуры
+      this.countText.x = offsetX;
+      this.countText.y = offsetY + halfHeight + 12;
+      this.healthBar.x = -this.healthBar.barWidth / 2 + offsetX;
+      this.healthBar.y = -halfHeight + offsetY - 14;
     } else {
-      this.graphic.circle(0, 0, radius).stroke({
-        width: 2,
-        color: 0xffffff,
-        alpha: 0.5,
+      // Для существ на 1 гекс — рисуем круг
+      const radius = this.hexSize * 0.6;
+      this.graphic.circle(0, 0, radius).fill({
+        color: this.creature.config.color,
+        alpha: 0.9,
       });
+
+      if (this.isSelected) {
+        this.graphic.circle(0, 0, radius).stroke({
+          width: 4,
+          color: 0xffd700,
+          alpha: 1.0,
+        });
+      } else {
+        this.graphic.circle(0, 0, radius).stroke({
+          width: 2,
+          color: 0xffffff,
+          alpha: 0.5,
+        });
+      }
+
+      this.countText.x = 0;
+      this.countText.y = radius + 12;
+      this.healthBar.x = -this.healthBar.barWidth / 2;
+      this.healthBar.y = -radius - 14;
     }
 
-    // Текст с количеством под кругом
-    this.countText.y = radius + 12;
-
-    // HP бар над кругом
-    this.healthBar.x = -this.healthBar.barWidth / 2;
-    this.healthBar.y = -radius - 14;
     // Обновляем максимальное HP (зависит от количества существ)
     const maxHp = this.creature.config.health * this.creature.count;
     this.healthBar.updateMaxHp(maxHp);
@@ -132,23 +257,63 @@ export class CreatureStack extends PIXI.Container {
    */
   selectForAttack(): void {
     this.isSelected = true;
-    // Перерисовываем с красной обводкой
     const { x, y } = hexToPixel(this.hex, this.hexSize);
     this.position.set(x, y);
 
-    const radius = this.hexSize * 0.6;
+    const size = this.getSizeInHexes();
     this.graphic.clear();
-    this.graphic.circle(0, 0, radius).fill({
-      color: this.creature.config.color,
-      alpha: 0.9,
-    });
-    this.graphic.circle(0, 0, radius).stroke({
-      width: 4,
-      color: 0xff0000, // Красная обводка для атаки
-      alpha: 1.0,
-    });
 
-    this.countText.y = radius + 12;
+    if (size >= 2) {
+      const secondHex = hexAdd(this.hex, { q: 1, r: 0 });
+      const secondPixel = hexToPixel(secondHex, this.hexSize);
+      const dx = secondPixel.x - x;
+      const dy = secondPixel.y - y;
+      const offsetX = dx / 2;
+      const offsetY = dy / 2;
+      const halfWidth = Math.abs(dx) / 2 + this.hexSize * 0.55;
+      const halfHeight = this.hexSize * 0.85;
+
+      this.graphic
+        .rect(
+          -halfWidth + offsetX,
+          -halfHeight + offsetY,
+          halfWidth * 2,
+          halfHeight * 2,
+        )
+        .fill({
+          color: this.creature.config.color,
+          alpha: 0.9,
+        });
+      this.graphic
+        .rect(
+          -halfWidth + offsetX,
+          -halfHeight + offsetY,
+          halfWidth * 2,
+          halfHeight * 2,
+        )
+        .stroke({
+          width: 4,
+          color: 0xff0000,
+          alpha: 1.0,
+        });
+
+      this.countText.x = offsetX;
+      this.countText.y = offsetY + halfHeight + 12;
+    } else {
+      const radius = this.hexSize * 0.6;
+      this.graphic.circle(0, 0, radius).fill({
+        color: this.creature.config.color,
+        alpha: 0.9,
+      });
+      this.graphic.circle(0, 0, radius).stroke({
+        width: 4,
+        color: 0xff0000,
+        alpha: 1.0,
+      });
+
+      this.countText.x = 0;
+      this.countText.y = radius + 12;
+    }
   }
 
   /**
@@ -165,6 +330,20 @@ export class CreatureStack extends PIXI.Container {
     onComplete?: () => void,
   ): void {
     const speed = this.creature.config.speed;
+    const size = this.getSizeInHexes();
+
+    // Для многогексовых существ — проверяем валидность каждой позиции на пути
+    const isValidPosition =
+      size >= 2
+        ? (hex: Hex) => {
+            const occupied = this.getOccupiedHexesAt(hex);
+            for (const h of occupied) {
+              const key = `${h.q},${h.r}`;
+              if (occupiedHexes?.has(key)) return false;
+            }
+            return true;
+          }
+        : undefined;
 
     // Находим путь по гексам
     const stepPath = findHexStepPath(
@@ -173,6 +352,7 @@ export class CreatureStack extends PIXI.Container {
       occupiedHexes || new Set(),
       speed,
       this.hexSize,
+      isValidPosition,
     );
 
     if (!stepPath || stepPath.length === 0) {

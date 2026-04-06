@@ -333,18 +333,43 @@ export class HexGridInteraction extends PIXI.Container {
 
   /**
    * Получить достижимые гексы для стека
+   * Для существ на 2+ гекса — фильтрует позиции, где вся фигура не поместится
    */
   private getReachableHexes(stack: CreatureStack): Hex[] {
     const creature = stack.getCreature();
     const currentHex = stack.getHex();
     const occupiedHexes = this.battleManager.getOccupiedHexes(stack);
 
-    return getHexesInRange(
+    // Для многогексовых существ: добавляем собственные занятые гексы в blocked list
+    // чтобы существо не могло переместиться на свои собственные гексы
+    const selfOccupiedHexes = new Set<string>(occupiedHexes);
+    if (stack.getSizeInHexes() >= 2) {
+      for (const hex of stack.getOccupiedHexes()) {
+        selfOccupiedHexes.add(`${hex.q},${hex.r}`);
+      }
+    }
+
+    const reachableHexes = getHexesInRange(
       currentHex,
       creature.config.speed,
-      occupiedHexes,
+      selfOccupiedHexes,
       this.gridWidth,
       this.gridHeight,
+    );
+
+    // Для существ на 1 гекс — возвращаем как есть
+    if (stack.getSizeInHexes() === 1) {
+      return reachableHexes;
+    }
+
+    // Для существ на 2+ гекса — дополнительно фильтруем позиции, где фигура не поместится
+    return reachableHexes.filter((hex) =>
+      this.battleManager.canStackMoveTo(
+        stack,
+        hex,
+        this.gridWidth,
+        this.gridHeight,
+      ),
     );
   }
 

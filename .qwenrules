@@ -1,0 +1,491 @@
+# Qwen Rules — Heroes of Might and Magic: Arena
+
+## Development Server Policy
+
+- DO NOT automatically run development servers (npm run dev, vite, etc.) after making changes
+- The user will manually run and test the project themselves
+- Only run build commands (npm run build, tsc --noEmit) when explicitly requested to verify compilation
+
+## Project Overview
+
+- **Goal:** Create a clone of Heroes of Might and Magic (HoMM3-style)
+- **Starting Point:** "Arena" mode — turn-based tactical battle
+- **Tech Stack:** TypeScript, PixiJS, Vite
+
+## Arena Mode Core Rules
+
+- Two sides (attacker and defender)
+- Each side has 1–7 creature stacks
+- Hexagonal grid battlefield (like HoMM3)
+- Turn order determined by creature initiative
+- Creatures move and act in initiative order
+
+## Development Phases
+
+### Phase 1: Core Infrastructure
+
+- [x] 1.1 Hexagonal grid rendering on PixiJS canvas
+- [x] 1.2 Creature data structures (interfaces/types)
+- [x] 1.3 Initiative queue system with visual turn order display
+- [x] 1.4 Basic UI: turn panel, creature info panel
+
+**Implemented in Phase 1.4:**
+
+- Creature info panel (`CreatureInfoPanel`)
+  - Displays: name (in Russian), level, side, attack, defense, damage, health (total), health (per unit), initiative, speed, attack type, creature count
+  - Shown on right-click (contextmenu) on creature stack
+  - Panel positioned close to the left side of hex grid
+  - Russian creature names dictionary (e.g., Peasant → Крестьянин)
+- Skip turn button
+  - Positioned below the turn order panel
+  - Styled with background and hover effect
+
+### Phase 2: Combat Mechanics
+
+- [x] 2.1 Movement: select creature, highlight reachable hexes, move on click
+- [x] 2.2 Attack: select target, calculate damage, show animation
+- [x] 2.3 Actions: Attack, Defend, Wait, Move
+- [x] 2.4 HP system: health tracking, damage display, death handling
+
+**Implemented in Phase 2.1:**
+
+- BattleManager: central battle state management (IDLE, SELECTED, MOVING)
+- HexUtils: BFS-based reachable hex calculation
+- HexHighlight: visual highlight for reachable hexes (green overlay), click handling
+- HexGridInteraction: handles movement and deselection logic
+- CreatureStack.moveTo(): smooth animation with easing
+- Click on stack (own side only): selects it + shows reachable hexes + creature info
+- Click on reachable hex (green): moves stack with animation
+- Click on empty hex: deselects stack and clears highlights
+- Turn switching: only via "Skip turn" button (removed canvas click)
+- Stacks rendered on top of interaction layer (correct z-ordering)
+
+**Implemented in Phase 2.2:**
+
+- DamageCalculator: HoMM3 damage formula (attack vs defense modifiers)
+- AttackHighlight: red highlight on enemy stacks in attack range
+- DamageDisplay: floating damage numbers and kill counter
+- BattleManager: ATTACKING state, applyDamage(), startAttackPhase()
+- Melee attack animation (lunge toward target and back)
+- Ranged attack support (placeholder delay)
+- Auto-attack phase after movement
+- Creature destruction when HP reaches 0
+
+**Implemented in Phase 2.3:**
+
+- ActionPanel: UI panel with Attack, Defend, Wait, Move buttons
+- ActionManager: tracks hasMoved, hasActed, isDefending per stack
+- Defend: reduces incoming damage by 50% for one round
+- Wait: moves stack to end of initiative queue
+- Attack: manual attack selection via action panel
+- Move: shows reachable hexes for movement
+- Actions reset on new round (skip turn button)
+- Button enable/disable based on stack's action state
+
+**Implemented in Phase 2.4:**
+
+- HealthBar: visual HP bar above each creature stack
+  - Dynamic color: green (>60%) → yellow (30-60%) → red (<30%)
+  - Updates on damage taken and creature count changes
+  - Positioned above the stack sprite
+- CreatureStack health integration
+  - `updateHealthBar()`: called after HP changes
+  - `animateDeath()`: fade out + shrink animation on death (800ms)
+  - HP bar hidden during death animation
+- VictoryConditionManager: tracks win/lose conditions
+  - Victory/defeat determined by side: if all stacks of one side are destroyed (count <= 0), that side loses
+  - Monitors alive stacks for attackers and defenders
+  - Auto-checks victory condition on each stack death
+  - Emits `battleEnded` event with outcome (victory/defeat)
+- VictoryScreen: end-of-battle overlay
+  - Shows "ПОБЕДА!" (gold) or "ПОРАЖЕНИЕ" (red) with subtitle
+  - "Заново" button to restart the battle
+  - Responsive to screen resize
+- BattleManager integration
+  - `applyDamage()` updates HP bar after damage
+  - `removeStack()` triggers death animation and notifies VictoryManager
+  - `getVictoryManager()` exposes VictoryConditionManager
+  - Added `TURN_ENDED` event and `endTurn(stack)` method
+  - `endTurn()` emits event after any action completes (attack, defend, wait, skip)
+- TurnOrderPanel: fixed 12-slot turn queue display
+  - Fixed array of 12 slots: creatures + round markers (R2, R3, R4...)
+  - R1 is not displayed in panel (current round)
+  - **Shift algorithm** (`advanceTurn`):
+    - Remove first slot (`shift()`)
+    - If removed slot was a **stack** → append acting stack to end (if alive)
+    - If removed slot was a **round marker** → append next round marker to end (R(n+1))
+    - `nextRoundMarker` tracks the next round number to insert
+    - Example: `[A, B, C, R2, A, B, C, R3, ...]` → after A: `[B, C, R2, A, B, C, R3, ..., A]`
+    - Example: after R2 removed: `[..., R3, ..., R5]` (new marker appended)
+  - Current turn highlighted with white border + full opacity
+  - Dead creatures (count <= 0) are never added to queue
+  - Panel scaled up 1.5x (icons 36px, gaps 12px, font 15px)
+  - Methods: `init(queue)`, `advanceTurn(stack)`, `update(queue, currentStack)`
+  - Battle over: queue stops shifting when `VictoryConditionManager.isBattleOver()` is true
+- Automatic turn queue switching
+  - `turnEnded` event subscribed in main.ts
+  - Queue automatically advances after: attack, defend, wait, skip turn
+- Move+Attack combo: single-click attack within movement range
+  - Orange highlight on enemies reachable in one move
+  - Click enemy → hero moves to adjacent hex + attacks
+  - BFS pathfinding to nearest attack position
+  - AttackHighlight: dual color modes (red/orange)
+
+### Phase 3: Content & Polish
+
+- [x] 3.1. Creature roster: multiple creature types per side
+- [x] 3.2. Basic AI: automatic enemy turns
+- [x] 3.3. Win/lose conditions: all creatures defeated, victory screen (implemented in 2.4)
+- [x] 3.4. Visual polish: sprites/animations, effects, feedback
+
+**Implemented in Phase 3.1:**
+
+- Archer (Лучник) — Level 2, Ranged attacker
+  - `ARCHER_CONFIG` in `src/entities/ArcherConfig.ts`
+  - HoMM3 stats: Attack 4, Defense 3, Damage 2-4, Health 10, Initiative 5, Speed 4
+  - Ranged attack type (no melee penalty for base archer)
+  - Green color (0x4CAF50) for visual distinction
+- HexGridInteraction updates for ranged combat:
+  - `animateAttack()`: ranged attacks use short delay (400ms) instead of lunge animation
+  - `showMoveAttackTargets()`: ranged creatures highlight all enemies within range (no movement needed)
+  - `onAttackTargetClick()`: ranged creatures attack directly without moving to target
+- SimpleAI updates for ranged creatures:
+  - `findEnemyInRange()`: replaces `findAdjacentEnemy()`, checks all enemies within attack range
+  - `executeTurn()`: ranged creatures skip move+attack step (they shoot from distance)
+  - `moveToEnemy()`: ranged creatures use `findBestApproachHex()` instead of `findNearestAttackHex`
+  - Action priorities for ranged:
+    1. Attack enemies within range (no movement needed)
+    2. Defend (if already moved)
+    3. Move toward nearest enemy (to get in range)
+    4. Defend (nothing else to do)
+- Russian name mapping: "Archer" → "Лучник" in `CreatureInfoPanel`
+
+**Implemented in Phase 3.2:**
+
+- SimpleAI: basic AI for computer-controlled side (defenders)
+  - Full action set: Attack, Defend, Move, Move+Attack
+  - Decision-making based on position evaluation
+  - Action priorities:
+    1. Attack without movement (enemy adjacent, distance ≤ 1)
+    2. Move + attack (can reach and strike in one turn)
+    3. Movement toward nearest enemy (always, if attack is not possible)
+    4. Defend (nowhere to go or already moved)
+  - Target evaluation: combination of distance and remaining HP for prioritization
+  - BFS pathfinding to nearest attack position (`findNearestAttackHex`)
+  - BFS pathfinding for best approach hex toward target (`findBestApproachHex`) — AI always moves toward the enemy, even if it cannot reach attack range in one turn
+  - `moveToHex()` method — move to target hex + auto-end turn
+- AI integration in BattleManager:
+  - `isAIControlled` flag in Creature interface
+  - Automatic AI turn trigger on `turnEnded` event
+  - Recursive AI turn chain (`runAITurn`) — all AI stacks act sequentially
+  - UI blocking during AI turn (skip button, hexGridInteraction, stack clicks)
+  - `onComplete` callback for moveStack() and defend(stack) (for AI synchronization)
+  - `defend(stack?)` method — accepts optional stack (for AI without selection)
+- HexGridInteraction:
+  - `interactionEnabled` flag to block clicks during AI
+  - `setInteractionEnabled(enabled)` method
+  - Checks in click handlers (reachable hex, attack target, empty hex)
+  - Player movement auto-ends turn (via `moveStack` callback)
+  - New round: action reset via `resetAllActions` on `isNewRound` in `turnEnded`
+- Bug fixes:
+  - **CreatureStack.updateHealthBar()** — now updates creature count text (`countText`) on the field as well
+  - **TurnOrderPanel.advanceTurn()** — calls `rebuildRoundMarkers()` after shift (round markers R2, R3, R4+ are recalculated every turn)
+  - **VictoryConditionManager.isBattleOver()** — battle-over flag; `turnEnded` checks and stops queue on victory/defeat
+- DebugPanel: debug UI for tracking attacker (player) movement coordinates
+  - Located to the right of the hex grid
+  - Shows movement history: creature name, from hex (q, r), to hex (q, r), turn number
+  - Displays last 8 movement records to prevent infinite growth
+  - Subscribes to `stackMoved` event in BattleManager, filters only `isAttacker === true`
+  - Turn counter increments on every `turnEnded` event
+  - BattleManager.STACK_MOVED event now emits both `oldHex` and `newHex` (previously only `newHex`)
+
+**Implemented in Phase 3.4:**
+
+- Hex-step movement animation system:
+  - `CreatureStack.moveTo()`: step-by-step animation along hex grid path (not direct line)
+  - `findHexStepPath()`: new function in HexUtils that returns array of {hex, x, y} points for animation
+  - BFS pathfinding ensures creatures move strictly through adjacent hexes
+  - Example paths: 0,0 → 1,0 → 1,1 → 1,2 OR 0,0 → 0,1 → 0,2 → 1,2
+  - Constant speed: 150ms per hex step (linear interpolation)
+  - `animateHexPath()`: recursive animation function that visits each hex in path sequentially
+- BattleManager integration:
+  - `moveStack()`: now passes `occupiedHexes` to `moveTo()` for pathfinding
+  - Pathfinding excludes all other stacks (except moving stack itself)
+  - Fallback to direct teleport if path not found (edge case handling)
+- Bug fixes:
+  - **CreatureStack.moveTo()** — signature changed: `moveTo(newHex, occupiedHexes?, onComplete?)` (added `occupiedHexes` parameter)
+  - **HexUtils** — added `findHexStepPath()` export, imported `HEX_SIZE` and `hexToPixel` from hex.ts
+
+## Code Style & Architecture Guidelines
+
+### File Organization
+
+```
+src/
+├── types/          # TypeScript interfaces and types
+├── core/           # Game engine, state management
+├── entities/       # Creature classes
+├── ui/             # UI components (panels, HUD)
+├── grid/           # Hex grid logic
+├── combat/         # Battle system, damage calculation
+├── ai/             # AI logic
+└── main.ts         # Entry point
+```
+
+### Coding Standards
+
+- Use TypeScript strict mode
+- Prefer interfaces for data types, classes for game entities
+- Keep components small and single-responsibility
+- Use PixiJS best practices (object pooling, container hierarchy)
+- Comment complex game logic (damage formulas, initiative order)
+- Use constants for game balance values (damage ranges, movement range)
+
+### Architecture Principles
+
+- Data-driven: creature stats defined in config objects, not hardcoded in classes
+- Event-driven: use PixiJS EventEmitter for game events (damage dealt, turn changed)
+- State machine: battle states (IDLE, MOVING, ATTACKING, ANIMATING, GAME_OVER)
+- Separate logic from rendering: game state → render pipeline
+
+### Initiative Queue Algorithm (Final)
+
+The turn order panel uses a **fixed 12-slot array** with the following shift algorithm:
+
+- **Initialization (`init`)**: Builds slots from unique creature stacks sorted by initiative: `[Archer, P1, P2, P3, R2, Archer, P1, P2, P3, R3, Archer, P1]`
+- **Normal turn (`advanceTurn`)**: `shift()` first slot → if it was a stack, `push(actingStack)` to end; if it was a round marker, `push(next round marker)`
+- **Wait (`advanceTurnWithWait`)**: `shift()` first slot → if it was a stack, insert waiting stack **before the first round marker** (end of current round); if round marker was removed, push new marker
+- **New round (`reinit`)**: Rebuild entire queue from scratch with correct round number
+- **Death (`removeStack`)**: `filter` out all copies of dead stack from slots
+
+Key files:
+
+- `InitiativeQueue.ts` — manages turn order, `next()`, `moveToEnd()` for Wait
+- `TurnOrderPanel.ts` — visual panel with 12 slots, shift/push algorithm
+- `ActionManager.ts` — tracks `isWaiting` flag per stack
+- `BattleScene.ts` — orchestrates: `handleTurnEnded(actingStack)` checks `isWaiting` before calling `next()`
+
+Wait behavior:
+
+1. Player clicks Wait → `ActionManager.wait()` → `InitiativeQueue.moveToEnd(stack)` + `state.isWaiting = true`
+2. `endTurn(stack)` emits event → `BattleScene.handleTurnEnded(stack)` receives acting stack directly
+3. `wasWaiting = actionManager.isWaiting(actingStack)` checked BEFORE `initiativeQueue.next()`
+4. Panel: `advanceTurnWithWait(actingStack)` → shift + insert before first round marker
+5. Next round: `resetAllActions()` clears `isWaiting` flags, `reinit()` rebuilds queue from scratch
+
+## Workflow Rules
+
+- Implement one phase at a time, ask for confirmation before moving to next
+- After each meaningful change, run `tsc --noEmit` to verify compilation
+- DO NOT add placeholder assets — use simple geometric shapes or colored graphics until real assets are provided
+- Keep the game playable at every step (incremental development)
+- Ask the user before making significant architectural decisions
+- **After every change to `.qwenrules` (bestiary updates, rule additions, etc.), duplicate the updated content to `.qwen/rules-ru.md` in Russian**
+- **Use consistent documentation style across `.qwenrules` and `.qwen/rules-ru.md`:**
+  - Phase checklists use `- [x]` / `- [ ]` format (e.g., `- [x] 2.2 Attack: ...`)
+  - "Implemented in Phase X.Y" sections use bullet lists with nested sub-bullets
+  - Match the style of existing Phase 1/Phase 2 documentation exactly
+
+## Creature Bestiary
+
+### 1. Peasant — Level 1
+
+| Parameter   | Value   |
+| ----------- | ------- |
+| Attack      | 1       |
+| Defense     | 1       |
+| Damage      | 1–2     |
+| Health      | 1       |
+| Initiative  | 4       |
+| Speed       | 3       |
+| Attack Type | Melee   |
+| Abilities   | None    |
+| Cost        | 15 gold |
+
+### 2. Archer — Level 2
+
+| Parameter   | Value    |
+| ----------- | -------- |
+| Attack      | 4        |
+| Defense     | 3        |
+| Damage      | 2–4      |
+| Health      | 10       |
+| Initiative  | 5        |
+| Speed       | 4        |
+| Attack Type | Ranged   |
+| Abilities   | None     |
+| Cost        | 100 gold |
+
+### 3. Griffin — Level 3
+
+| Parameter   | Value    |
+| ----------- | -------- |
+| Attack      | 8        |
+| Defense     | 8        |
+| Damage      | 3–6      |
+| Health      | 25       |
+| Initiative  | 6        |
+| Speed       | 5        |
+| Attack Type | Melee    |
+| Abilities   | None     |
+| Size        | 2 hexes  |
+| Cost        | 200 gold |
+
+## Multi-Hex Creatures
+
+Some creatures (like Griffin) occupy **2 hexes** on the battlefield. This is controlled by the `sizeInHexes` parameter in `CreatureConfig`:
+
+- `sizeInHexes: 1` (default) — creature occupies 1 hex, normal size
+- `sizeInHexes: 2` — creature occupies 2 adjacent hexes, rendered as a rectangle spanning both hexes
+
+**Implementation:**
+
+- `CreatureStack.getSizeInHexes()` — returns creature's hex size
+- `CreatureStack.getOccupiedHexes()` — returns array of all hexes occupied by the stack
+- `CreatureStack.getOccupiedHexesAt(targetHex)` — returns hexes the stack would occupy at a given position (without moving)
+- `CreatureStack.occupiesHex(hex)` — checks if the stack occupies a specific hex
+- `BattleManager.getOccupiedHexes()` — aggregates occupied hexes from all stacks (excludes specified stack)
+- `BattleManager.canStackMoveTo()` — checks if a stack can move to a position (all hexes free and in bounds)
+- `BattleManager.getStackAtHex()` — finds which stack occupies a given hex
+- Pathfinding (BFS) treats all occupied hexes as obstacles
+- **Movement**: for multi-hex creatures:
+  1. The creature's own occupied hexes are added to the blocked list (so it cannot move onto its own hexes)
+  2. Reachable hexes are filtered to only include positions where the entire creature fits
+  3. Pathfinding validates each step — the creature moves as a unit, not hex-by-hex
+  - Example: Griffin at [8,2]-[9,2] can move to [10,2]-[11,2], but NOT to [9,2]-[10,2] (that would be a 1-hex shift, overlapping with its own position)
+- Visual rendering: 2-hex creatures are drawn as a rectangle (`rect`) spanning both hexes, centered between them
+- Hit area: expanded rectangle covering both hexes so clicks on either hex select the creature
+
+**Key files:**
+
+- `CreatureStack.ts` — `getOccupiedHexes()`, `getOccupiedHexesAt()`, `occupiesHex()`, `moveTo()` with footprint validation
+- `BattleManager.ts` — `getOccupiedHexes()`, `canStackMoveTo()`, `getStackAtHex()`
+- `HexGridInteraction.ts` — `getReachableHexes()` adds self-occupied hexes to blocked list for multi-hex creatures
+- `HexUtils.ts` — `findPath()` and `findHexStepPath()` accept optional `isValidPosition` callback
+
+## Stack Placement on the Field
+
+- **Grid size:** 12×10 hexes (width=12, height=10)
+- **Player (attackers):** placed on the left side of the field, top to bottom (q=0..2, r=0..N)
+- **Enemy (defenders):** placed on the right side of the field, starting from q=11, top to bottom (r=0..N)
+- Each subsequent stack receives the next free position downward on the grid
+
+### Attacker Stack Placement Coordinates (5 stacks)
+
+- Coordinates array (`attackerPlacementHexes` in `main.ts`):
+
+| Stack # | q   | r   |
+| ------- | --- | --- |
+| 1       | 0   | 0   |
+| 2       | -1  | 2   |
+| 3       | -2  | 4   |
+| 4       | -3  | 6   |
+| 5       | -4  | 8   |
+
+- **Pattern:** Each subsequent stack shifts left by 1 (q-1) and down by 2 (r+2)
+- **Usage:** `attackerPlacementHexes[i]` gives the hex for stack index `i` (0-based)
+
+### Defender Stack Placement Coordinates (5 stacks)
+
+- Coordinates array (`defenderPlacementHexes` in `main.ts`):
+
+| Stack # | q   | r   |
+| ------- | --- | --- |
+| 1       | 11  | 0   |
+| 2       | 10  | 2   |
+| 3       | 9   | 4   |
+| 4       | 8   | 6   |
+| 5       | 7   | 8   |
+
+- **Pattern:** Mirror reflection of attacker stacks across the vertical axis
+- **Mirror formula:** `q_defender = q_min(r) + q_max(r) - q_attacker` for each row `r`
+  - Row r=0: q_min=0, q_max=11 → mirror of q=0: 0+11-0=11
+  - Row r=2: q_min=-1, q_max=10 → mirror of q=-1: -1+10-(-1)=10
+  - Row r=4: q_min=-2, q_max=9 → mirror of q=-2: -2+9-(-2)=9
+  - Row r=6: q_min=-3, q_max=8 → mirror of q=-3: -3+8-(-3)=8
+  - Row r=8: q_min=-4, q_max=7 → mirror of q=-4: -4+7-(-4)=7
+- **Usage:** `defenderPlacementHexes[i]` gives the hex for stack index `i` (0-based)
+
+## Phase 4: Architecture Refactoring
+
+### Phase 4.1: BattleScene Orchestration
+
+- [x] 4.1. Created `BattleScene.ts` as central orchestrator
+- [x] 4.1. Moved event wiring from `main.ts` to `BattleScene`
+- [x] 4.1. Extracted `INITIAL_STACKS` to `BattleConfig.ts`
+- [x] 4.1. Created `CreatureStackFactory.ts` for stack creation
+- [x] 4.1. Added `ArcherConfig.ts` with Archer stats
+- [x] 4.1. Fixed initiative queue Wait behavior:
+  - Wait moves stack to end of current round (before next round marker)
+  - `ActionManager` tracks `isWaiting` flag per stack
+  - `handleTurnEnded(actingStack)` receives stack from event, not from queue
+  - `wasWaiting` checked BEFORE `initiativeQueue.next()` to avoid stale reference
+  - `advanceTurnWithWait` inserts stack before first round marker in panel
+  - New round: `reinit(queue, roundNumber)` rebuilds with correct round labels (R2, R3...)
+
+**Implemented in Phase 4.1:**
+
+- `BattleScene.ts`: Central orchestrator for all battle systems
+  - Subscribes to `turnEnded`, `stackMoved`, `battleEnded` events
+  - `handleTurnEnded(actingStack)`: Receives acting stack directly from event (not from queue)
+  - Wait detection: `actionManager.isWaiting(actingStack)` BEFORE `initiativeQueue.next()`
+  - Passes round number to `reinit(queue, roundNumber)` for correct round markers
+- `ActionManager.ts`: Added `isWaiting` flag to `StackActionState`
+  - `wait()` sets `state.isWaiting = true`
+  - `isWaiting(stack)` getter for BattleScene
+  - `resetAllActions()` clears `isWaiting` on new round
+- `TurnOrderPanel.ts`: Fixed 12-slot shift/push algorithm
+  - `advanceTurn(stack)`: `shift()` → `push(actingStack)` to end
+  - `advanceTurnWithWait(stack)`: `shift()` → insert stack before first round marker
+  - `reinit(queue, roundNumber)`: Rebuilds queue with correct round number for markers
+  - `removeStack(stack)`: Filters out all copies of dead stack
+- `InitiativeQueue.ts`: Simplified — no more `waitingStacks` set
+  - `moveToEnd(stack)`: Standard move-to-end for Wait (used by ActionManager)
+  - `next()`: Simple circular increment, `isNewRound` when index wraps to 0
+- `BattleConfig.ts`: Extracted `INITIAL_STACKS` configuration
+- `CreatureStackFactory.ts`: Registry-based stack creation
+- `ArcherConfig.ts`: Archer creature configuration (ranged, initiative 5)
+
+### Phase 4.2: Multi-Hex Creatures (Griffin)
+
+- [x] 4.2. Added `sizeInHexes` parameter to `CreatureConfig` interface
+- [x] 4.2. Created `GriffinConfig.ts` with Griffin stats (Level 3, Attack 8, Defense 8, HP 25, Initiative 6, Speed 5, Melee, sizeInHexes: 2)
+- [x] 4.2. Registered Griffin in `CreatureStackFactory`
+- [x] 4.2. Added Griffin to `INITIAL_STACKS` (attacker side, 3 units)
+- [x] 4.2. Added Russian name "Грифон" to `CreatureInfoPanel`
+- [x] 4.2. Updated `CreatureStack` for multi-hex rendering:
+  - 1-hex creatures: circle (`radius = hexSize * 0.6`)
+  - 2-hex creatures: rectangle spanning both hexes, centered between them
+- [x] 4.2. Added hit area expansion for 2-hex creatures (click on either hex selects the creature)
+- [x] 4.2. Added movement blocking: both hexes occupied by a multi-hex creature are blocked for its own movement
+- [x] 4.2. Updated pathfinding (`findPath`, `findHexStepPath`) to accept `isValidPosition` callback
+- [x] 4.2. Updated `getReachableHexes()` to filter positions where multi-hex creature cannot fit
+
+**Implemented in Phase 4.2:**
+
+- `CreatureConfig.ts`: Added optional `sizeInHexes?: number` field (default 1)
+- `GriffinConfig.ts`: New creature config with `sizeInHexes: 2`
+  - Stats: Attack 8, Defense 8, Damage 3-6, Health 25, Initiative 6, Speed 5, Melee
+  - Color: 0xDAA520 (golden brown)
+- `CreatureStack.ts`:
+  - `getSizeInHexes()`: returns `config.sizeInHexes ?? 1`
+  - `getOccupiedHexes()`: returns array of all hexes occupied by the stack
+  - `getOccupiedHexesAt(targetHex)`: returns hexes the stack would occupy at a position
+  - `occupiesHex(hex)`: checks if the stack occupies a specific hex
+  - `render()`: rectangle for 2-hex creatures, circle for 1-hex
+  - `selectForAttack()`: same shape logic with red stroke
+  - `moveTo()`: passes `isValidPosition` callback to pathfinding for multi-hex validation
+  - Constructor: expanded hit area (`PIXI.Rectangle`) for 2-hex creatures
+  - Count text: centered below the shape (below rectangle for 2-hex, below circle for 1-hex)
+- `BattleManager.ts`:
+  - `getOccupiedHexes()`: aggregates all hexes from all stacks (uses `getOccupiedHexes()` per stack)
+  - `canStackMoveTo(stack, targetHex, gridWidth, gridHeight)`: checks if all hexes are free and in bounds
+  - `getStackAtHex(hex)`: finds which stack occupies a given hex
+- `HexGridInteraction.ts`:
+  - `getReachableHexes()`: for 2-hex creatures, adds self-occupied hexes to blocked list, then filters reachable positions
+- `HexUtils.ts`:
+  - `findPath()`: added optional `isValidPosition` callback parameter
+  - `findHexStepPath()`: added optional `isValidPosition` callback parameter
+- `CreatureInfoPanel.ts`: Added `"Griffin": "Грифон"` to Russian names dictionary
+- `BattleConfig.ts`: Added Griffin to `INITIAL_STACKS` at `ATTACKER_PLACEMENT[2]` (3 units)
+- `CreatureStackFactory.ts`: Registered `"griffin": GRIFFIN_CONFIG` in registry
