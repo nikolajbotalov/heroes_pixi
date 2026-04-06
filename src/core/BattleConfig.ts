@@ -76,11 +76,11 @@ export const DEFAULT_GRID_CONFIG: GridConfig = {
  * 5 слотов: от левого верхнего угла вниз-вправо по диагонали.
  */
 export const ATTACKER_PLACEMENT: Hex[] = [
-  { q: 0, r: 0 },   // стек 1
-  { q: -1, r: 2 },  // стек 2
-  { q: -2, r: 4 },  // стек 3
-  { q: -3, r: 6 },  // стек 4
-  { q: -4, r: 8 },  // стек 5
+  { q: 0, r: 0 }, // стек 1
+  { q: -1, r: 2 }, // стек 2
+  { q: -2, r: 4 }, // стек 3
+  { q: -3, r: 6 }, // стек 4
+  { q: -4, r: 8 }, // стек 5
 ];
 
 /**
@@ -89,11 +89,11 @@ export const ATTACKER_PLACEMENT: Hex[] = [
  * Зеркальное отражение: q_defender = q_min + q_max - q_attacker
  */
 export const DEFENDER_PLACEMENT: Hex[] = [
-  { q: 11, r: 0 },  // стек 1 (зеркало q=0 при r=0)
-  { q: 10, r: 2 },  // стек 2 (зеркало q=-1 при r=2)
-  { q: 9, r: 4 },   // стек 3 (зеркало q=-2 при r=4)
-  { q: 8, r: 6 },   // стек 4 (зеркало q=-3 при r=6)
-  { q: 7, r: 8 },   // стек 5 (зеркало q=-4 при r=8)
+  { q: 11, r: 0 }, // стек 1 (зеркало q=0 при r=0)
+  { q: 10, r: 2 }, // стек 2 (зеркало q=-1 при r=2)
+  { q: 9, r: 4 }, // стек 3 (зеркало q=-2 при r=4)
+  { q: 8, r: 6 }, // стек 4 (зеркало q=-3 при r=6)
+  { q: 7, r: 8 }, // стек 5 (зеркало q=-4 при r=8)
 ];
 
 /**
@@ -104,6 +104,13 @@ export const INITIAL_STACKS: StackConfig[] = [
     creatureType: "peasant",
     count: 20,
     hex: ATTACKER_PLACEMENT[0],
+    isAttacker: true,
+    isAIControlled: false,
+  },
+  {
+    creatureType: "griffin",
+    count: 3,
+    hex: ATTACKER_PLACEMENT[2],
     isAttacker: true,
     isAIControlled: false,
   },

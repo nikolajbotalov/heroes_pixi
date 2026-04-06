@@ -89,12 +89,16 @@ export function isHexReachable(
 /**
  * Найти кратчайший путь между двумя гексами (BFS)
  * Возвращает массив гексов от start до end (включительно)
+ *
+ * @param isValidPosition - опциональная функция проверки, может ли существо встать на позицию
+ *   Для существ на 1 гекс можно не передавать. Для 2+ гексов — должна проверять все занимаемые гексы.
  */
 export function findPath(
   start: Hex,
   end: Hex,
   occupiedHexes: Set<string>,
   maxRange: number,
+  isValidPosition?: (hex: Hex) => boolean,
 ): Hex[] | null {
   const key = (h: Hex) => `${h.q},${h.r}`;
   const visited = new Set<string>();
@@ -129,6 +133,10 @@ export function findPath(
     for (const neighbor of neighbors) {
       const neighborKey = key(neighbor);
       if (!visited.has(neighborKey) && !occupiedHexes.has(neighborKey)) {
+        // Дополнительная проверка валидности позиции (для многогексовых существ)
+        if (isValidPosition && !isValidPosition(neighbor)) {
+          continue;
+        }
         visited.add(neighborKey);
         parent.set(neighborKey, current);
         queue.push(neighbor);
@@ -156,6 +164,7 @@ function parseHexKey(key: string): Hex {
  * @param occupiedHexes - множество занятых гексов (кроме start)
  * @param maxRange - максимальная дальность перемещения (скорость существа)
  * @param hexSize - размер гекса для конвертации в пиксели
+ * @param isValidPosition - опциональная проверка валидности позиции (для многогексовых существ)
  * @returns Массив точек для анимации или null если путь недостижим
  */
 export function findHexStepPath(
@@ -164,6 +173,7 @@ export function findHexStepPath(
   occupiedHexes: Set<string>,
   maxRange: number,
   hexSize: number = HEX_SIZE,
+  isValidPosition?: (hex: Hex) => boolean,
 ): Array<{ hex: Hex; x: number; y: number }> | null {
   // Проверяем, что конечная точка в пределах досягаемости
   const distance = hexDistance(start, end);
@@ -178,7 +188,7 @@ export function findHexStepPath(
   }
 
   // Ищем путь через BFS
-  const path = findPath(start, end, occupiedHexes, maxRange);
+  const path = findPath(start, end, occupiedHexes, maxRange, isValidPosition);
   if (!path) {
     return null;
   }

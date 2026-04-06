@@ -3,6 +3,7 @@ import { CreatureStack } from "../entities/CreatureStack";
 import { StackConfig } from "../core/BattleConfig";
 import { PEASANT_CONFIG } from "../entities/PeasantConfig";
 import { ARCHER_CONFIG } from "../entities/ArcherConfig";
+import { GRIFFIN_CONFIG } from "../entities/GriffinConfig";
 
 /**
  * Реестр конфигураций существ по ключу.
@@ -10,6 +11,7 @@ import { ARCHER_CONFIG } from "../entities/ArcherConfig";
 const CREATURE_REGISTRY: Record<string, Creature["config"]> = {
   peasant: PEASANT_CONFIG,
   archer: ARCHER_CONFIG,
+  griffin: GRIFFIN_CONFIG,
 };
 
 /**

@@ -154,15 +154,66 @@ export class BattleManager {
 
   /**
    * Получить множество занятых гексов (все стеки кроме выбранного)
+   * Учитывает размер существ (sizeInHexes) — большие существа занимают несколько гексов
    */
   getOccupiedHexes(excludeStack?: CreatureStack): Set<string> {
     const occupied = new Set<string>();
     for (const stack of this.allStacks) {
       if (excludeStack && stack === excludeStack) continue;
-      const hex = stack.getHex();
-      occupied.add(`${hex.q},${hex.r}`);
+      // Для существ на 2+ гекса — добавляем все занимаемые гексы
+      const occupiedHexes = stack.getOccupiedHexes();
+      for (const hex of occupiedHexes) {
+        occupied.add(`${hex.q},${hex.r}`);
+      }
     }
     return occupied;
+  }
+
+  /**
+   * Найти стек, занимающий указанный гекс (учитывает существа на 2+ гекса)
+   * @returns стек или null, если гекс свободен
+   */
+  getStackAtHex(hex: Hex): CreatureStack | null {
+    for (const stack of this.allStacks) {
+      if (stack.occupiesHex(hex)) {
+        return stack;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Проверить, может ли стек встать на указанную позицию
+   * Для существ на 2+ гекса — проверяет, что все гексы свободны и в пределах поля
+   */
+  canStackMoveTo(
+    stack: CreatureStack,
+    targetHex: Hex,
+    gridWidth: number,
+    gridHeight: number,
+  ): boolean {
+    const occupiedHexes = stack.getOccupiedHexesAt(targetHex);
+
+    // Проверяем каждый гекс
+    for (const hex of occupiedHexes) {
+      // Проверка границ поля
+      const rOffset = Math.floor(hex.r / 2);
+      const minQ = -rOffset;
+      const maxQ = gridWidth - rOffset - 1;
+      if (hex.r < 0 || hex.r >= gridHeight || hex.q < minQ || hex.q > maxQ) {
+        return false;
+      }
+
+      // Проверка, что гекс не занят другим стеком
+      for (const other of this.allStacks) {
+        if (other === stack) continue;
+        if (other.occupiesHex(hex)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   /**

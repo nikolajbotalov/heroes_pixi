@@ -24,6 +24,8 @@ export interface CreatureConfig {
   attackType: "melee" | "ranged";
   /** Цвет для отображения (пока нет спрайтов) */
   color: number;
+  /** Размер существа в гексах (1 = обычный, 2 = занимает 2 гекса) */
+  sizeInHexes?: number;
 }
 
 /**
